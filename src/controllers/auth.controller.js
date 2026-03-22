@@ -64,63 +64,136 @@ export const signup = async (req, res) => {
 // Login
 export const ssoLogin = async (req, res) => {
   try {
-    console.log("sso-login route");
-    
-    const { email, password } = req.body;
+    console.log("🔐 SSO login route hit");
 
+    const { email, password, redirect } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
+
+    // Find user
     const user = await User.findOne({ email });
-    if (!user)
-      return res.status(401).json({ message: "Invalid email or password ❌" });
 
+    if (!user) {
+      return res.status(401).json({
+        message: "Invalid email or password ❌",
+      });
+    }
+
+    // Compare password
     const match = await bcrypt.compare(password, user.password);
-    if (!match)
-      return res.status(401).json({ message: "Invalid email or password ❌" });
 
+    if (!match) {
+      return res.status(401).json({
+        message: "Invalid email or password ❌",
+      });
+    }
+
+    // Generate JWT
     const token = generateToken(user);
 
-    // 🍪 Set cookie
-    res.cookie("token", token, {
-      httpOnly: true,          // JS cannot access cookie (XSS protection)
-      // 🔐 What does secure mean in cookies?
-
-      // secure: true
-
-      // ➡️ The cookie will be sent ONLY over HTTPS
-      // ➡️ The browser will NOT send it over HTTP
-      // secure: process.env.NODE_ENV === "production", // HTTPS only in prod
-      secure: true, // HTTPS only in prod
-
-      // ❌ Why sameSite: "strict" breaks login
-
-      // Your setup:
-
-      // Frontend → Vercel
-
-      // Backend → Render
-
-      // Different domains = cross-site request
-
-      sameSite: "none",      // CSRF protection
-      // sameSite: "strict",      // CSRF protection
+    // 🍪 Set SSO cookie
+    // res.cookie("sso_token", token, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === "production", // HTTPS in production
+    //   sameSite: "none", // required for cross-site SSO
+    //   path: "/",
+    //   maxAge: 7 * 24 * 60 * 60 * 1000,
+    // });
+    res.cookie("sso_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+
+    const userData = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+    };
+
+    // 🔁 If redirect URL provided → SSO flow
+    if (redirect) {
+      const redirectUrl = `${redirect}?token=${token}`;
+
+      console.log("➡️ Redirecting to:", redirectUrl);
+
+      return res.redirect(redirectUrl);
+    }
+
+    // Normal API response
+    return res.status(200).json({
+      message: "SSO Login successful ✅",
+      token,
+      user: userData,
+    });
+
+  } catch (error) {
+    console.error("❌ SSO Login Error:", error);
+
+    return res.status(500).json({
+      message: "Server Error",
+    });
+  }
+};
+export const checkSession = async (req, res) => {
+  try {
+    console.log("check session ", req.cookies);
+
+    // const token = req.cookies.token;
+    const token = req.cookies.sso_token;
+
+    if (!token) {
+      return res.status(401).json({ authenticated: false });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     return res.json({
-      message: "Login successful ✅",
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-      },
+      authenticated: true,
+      user: decoded,
+      token
     });
   } catch (error) {
-    console.error("Login Error:", error);
+    return res.status(401).json({ authenticated: false });
+  }
+};
+export const logout = async (req, res) => {
+  try {
+    // res.clearCookie("sso_token", {
+    //   httpOnly: true,
+    //   secure: true,
+    //   sameSite: "none",
+    //   path: "/",
+    // });
+    console.log("coolies for logout", req.cookies);
+
+    // res.clearCookie("sso_token", {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === "production",
+    //   sameSite: "none",
+    //   path: "/",
+    // });
+
+    console.log("cookies before logout:", req.cookies);
+
+    res.clearCookie("sso_token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+    });
+    return res.json({ message: "Logout successful ✅" });
+  } catch (error) {
+    console.error("Logout Error:", error);
     res.status(500).json({ message: "Server Error" });
   }
 };
-
 export const me = async (req, res) => {
   try {
     // 🔐 User must be attached by protect middleware
