@@ -10,13 +10,15 @@ import { neonQuery } from "../db/neonPostgresDB.js"
 const privateKey = fs.existsSync("/etc/secrets/private.key")
   ? fs.readFileSync("/etc/secrets/private.key", "utf8") // Render
   : fs.readFileSync(
-      path.join(process.cwd(), "keys", "private.key"),
-      "utf8"
-    ); // Local
-const publicKey = fs.readFileSync(
-  path.join(process.cwd(), "keys", "public.key"),
-  "utf8"
-);
+    path.join(process.cwd(), "keys", "private.key"),
+    "utf8"
+  ); // Local
+const publicKey = fs.existsSync("/etc/secrets/public.key")
+  ? fs.readFileSync("/etc/secrets/public.key", "utf8")
+  : fs.readFileSync(
+    path.join(process.cwd(), "keys", "public.key"),
+    "utf8"
+  );
 // Helper: generate JWT token
 export const generateToken = (user) => {
   const { password, ...safeUser } = user;
