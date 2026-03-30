@@ -24,7 +24,7 @@ export const generateToken = (user) => {
   console.log("user passed in generate token ", user);
 
   const { password, ...safeUser } = user;
-  console.log("user data going to create token  ", user);
+  console.log("user data going to create token - safe user ", safeUser);
 
   return jwt.sign(
     { ...safeUser, _id: user?.id, id: user?.id, email: user?.email },
