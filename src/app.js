@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { connectDB } from "./db/db.js";
+import { connectNeonDB } from "./db/neonPostgresDB.js";
 import authRoutes from "./routes/auth.routes.js";
 // import mailRoutes from "./routes/mail.routes.js";
 // import webhookRoutes from "./routes/webhook.routes.js";
@@ -28,7 +29,8 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Connect DB
-connectDB();
+// connectDB();        // MongoDB (old)
+connectNeonDB();    // Neon PostgreSQL (new)
 
 // Allow requests from frontend
 const FRONTEND_URL = process.env.FRONTEND_URL;
@@ -106,6 +108,9 @@ app.use("/sso/api/auth", authRoutes);
 
 app.get("/", (req, res) => {
   res.send("Backend is running ✅");
+});
+app.get("/test", (req, res) => {
+  res.send("Backend is running ✅ - for test route");
 });
 app.get("/ip", (req, res) => {
   console.log("req.ip:", req.ip);

@@ -1,12 +1,13 @@
 import { User } from "../models/User.model.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { neonQuery } from "../db/neonPostgresDB.js"
 // import { handleGoogleAuth } from "../services/auth.service.js";
 
 // Helper: generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
-    { _id: user._id, id: user._id, email: user.email },
+    { _id: user?._id, id: user?._id, email: user?.email },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
@@ -60,9 +61,224 @@ export const signup = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+export const ssoSignup_mongodb = async (req, res) => {
+  try {
+    const { name, email, password, redirect, sourceUrl } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "All fields are required",
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      return res.status(409).json({
+        message: "User already exists ⚠️",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+
+      // 👇 store URL
+      signupSource: sourceUrl
+    });
+
+    const token = generateToken(user);
+
+    res.cookie("sso_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    if (redirect) {
+      const redirectUrl = redirect.includes("?")
+        ? `${redirect}&token=${token}`
+        : `${redirect}?token=${token}`;
+
+      return res.redirect(redirectUrl);
+    }
+
+    return res.status(201).json({
+      message: "Signup successful ✅",
+      token,
+    });
+
+  } catch (error) {
+    console.error("❌ SSO Signup Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const ssoSignup = async (req, res) => {
+  try {
+    console.log("🆕 SSO signup route hit");
+
+    const { name, email, password, redirect, sourceUrl } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "All fields are required",
+      });
+    }
+
+    // ✅ 1. Check if user exists
+    const existingUser = await neonQuery(
+      "SELECT id FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        message: "User already exists ⚠️",
+      });
+    }
+
+    // ✅ 2. Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // ✅ 3. Insert user
+    const insertUser = await neonQuery(
+      `INSERT INTO users (name, email, password, signup_source)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email`,
+      [name, email, hashedPassword, sourceUrl]
+    );
+
+    const user = insertUser.rows[0];
+
+    // ✅ 4. Generate JWT
+    const token = generateToken(user);
+
+    // ✅ 5. Set cookie
+    res.cookie("sso_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    // ✅ 6. Redirect (SSO flow)
+    if (redirect) {
+      const redirectUrl = redirect.includes("?")
+        ? `${redirect}&token=${token}`
+        : `${redirect}?token=${token}`;
+
+      console.log("➡️ Redirecting to:", redirectUrl);
+
+      return res.redirect(redirectUrl);
+    }
+
+    // ✅ 7. Normal response
+    return res.status(201).json({
+      message: "Signup successful ✅",
+      token,
+      user,
+    });
+
+  } catch (error) {
+    console.error("❌ SSO Signup Error:", error.message);
+
+    return res.status(500).json({
+      message: "Server Error",
+    });
+  }
+};
 // but in the devtools in the cookies i can only see the https://mail.slvai.tech not my mail-server-backend.onrender.com
 // Login
 export const ssoLogin = async (req, res) => {
+  try {
+    console.log("🔐 SSO login route hit");
+
+    let { email, password, redirect } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
+
+    // ✅ Normalize email (IMPORTANT)
+    email = email.toLowerCase();
+
+    // ✅ 1. Fetch user from PostgreSQL
+    const result = await neonQuery(
+      "SELECT id, name, email, password FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        message: "Invalid email or password ❌",
+      });
+    }
+
+    const user = result.rows[0];
+
+    // ✅ 2. Compare password
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
+      return res.status(401).json({
+        message: "Invalid email or password ❌",
+      });
+    }
+
+    // ✅ 3. Generate JWT
+    const token = generateToken(user);
+
+    // ✅ 4. Set SSO cookie
+    res.cookie("sso_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const userData = {
+      id: user.id, // 👈 changed from _id
+      name: user.name,
+      email: user.email,
+    };
+
+    // ✅ 5. Redirect (SSO flow)
+    if (redirect) {
+      const redirectUrl = redirect.includes("?")
+        ? `${redirect}&token=${token}`
+        : `${redirect}?token=${token}`;
+
+      console.log("➡️ Redirecting to:", redirectUrl);
+
+      return res.redirect(redirectUrl);
+    }
+
+    // ✅ 6. Normal API response
+    return res.status(200).json({
+      message: "SSO Login successful ✅",
+      token,
+      user: userData,
+    });
+
+  } catch (error) {
+    console.error("❌ SSO Login Error:", error.message);
+
+    return res.status(500).json({
+      message: "Server Error",
+    });
+  }
+};
+export const ssoLogin_mongodb = async (req, res) => {
   try {
     console.log("🔐 SSO login route hit");
 
