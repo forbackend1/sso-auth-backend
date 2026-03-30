@@ -21,7 +21,10 @@ const publicKey = fs.existsSync("/etc/secrets/public.key")
   );
 // Helper: generate JWT token
 export const generateToken = (user) => {
+  console.log("user passed in generate token ", user);
+
   const { password, ...safeUser } = user;
+  console.log("user data going to create token  ", user);
 
   return jwt.sign(
     { ...safeUser, _id: user?.id, id: user?.id, email: user?.email },
