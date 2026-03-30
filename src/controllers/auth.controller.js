@@ -6,10 +6,13 @@ import jwt from "jsonwebtoken";
 import { neonQuery } from "../db/neonPostgresDB.js"
 // import { handleGoogleAuth } from "../services/auth.service.js";
 // const privateKey = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
-export const privateKey = fs.readFileSync(
-  path.join(process.cwd(), "keys", "private.key"),
-  "utf8"
-);
+// ✅ Load private key (Render secret file OR local fallback)
+const privateKey = fs.existsSync("/etc/secrets/private.key")
+  ? fs.readFileSync("/etc/secrets/private.key", "utf8") // Render
+  : fs.readFileSync(
+      path.join(process.cwd(), "keys", "private.key"),
+      "utf8"
+    ); // Local
 const publicKey = fs.readFileSync(
   path.join(process.cwd(), "keys", "public.key"),
   "utf8"
